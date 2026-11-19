@@ -26,6 +26,12 @@ status; an invalid or newer on-disk edit is not treated as an applied policy.
 An invalid reload keeps the previous settings. A changed `fan_control` requires
 a restart and causes the whole reload to be rejected until then.
 
+Doctor does not follow symlinks when it reads system files. The exception is
+NixOS: there, the system generates `/etc/os-release` and unit files as symlinks
+into `/nix/store`. Doctor follows a symlink only if it is owned by root and
+ends in a store file owned by root with no write permission. Other symlinks
+are reported as unreadable.
+
 Doctor and debug JSON reports carry `schema_version` 3. Documentation links are pinned to the executable's release version.
 
 Package profiles cover Debian 13, Ubuntu 24.04/26.04, Fedora 43/44 and

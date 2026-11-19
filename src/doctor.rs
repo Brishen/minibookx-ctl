@@ -183,11 +183,21 @@ impl Sources for System {
 }
 
 fn system_text(path: &str, require_root: bool) -> Result<String, Missing> {
-    let file = OpenOptions::new()
+    let file = match OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_CLOEXEC | libc::O_NONBLOCK | libc::O_NOFOLLOW)
         .open(path)
-        .map_err(Missing::from_io)?;
+    {
+        Ok(file) => file,
+        Err(error) if error.raw_os_error() == Some(libc::ELOOP) && nixos() => {
+            // Any other symlink keeps its original error.
+            let original = Missing::from_io(error);
+            let file =
+                nix_store_file(Path::new(path), Path::new(NIX_STORE), 0).map_err(|_| original)?;
+            return read_bounded(file);
+        }
+        Err(error) => return Err(Missing::from_io(error)),
+    };
     let info = file.metadata().map_err(Missing::from_io)?;
     if !info.is_file()
         || (require_root && (info.uid() != 0 || info.nlink() != 1 || info.mode() & 0o022 != 0))
@@ -195,6 +205,44 @@ fn system_text(path: &str, require_root: bool) -> Result<String, Missing> {
         return Err(Missing::Invalid);
     }
     read_bounded(file)
+}
+
+const NIX_STORE: &str = "/nix/store";
+
+fn nixos() -> bool {
+    fs::symlink_metadata("/etc/NIXOS").is_ok_and(|info| info.is_file() && info.uid() == 0)
+}
+
+/// NixOS generates /etc, os-release and unit directories as root-owned symlink
+/// chains into its read-only store. Follow such a leaf only when it ends in a
+/// store file without any write permission. Store optimisation hard-links
+/// identical files, so the link count is not checked for these files.
+fn nix_store_file(path: &Path, store: &Path, owner: u32) -> Result<fs::File, Missing> {
+    let link = fs::symlink_metadata(path).map_err(Missing::from_io)?;
+    if !link.file_type().is_symlink() || link.uid() != owner {
+        return Err(Missing::Invalid);
+    }
+    let target = fs::canonicalize(path).map_err(Missing::from_io)?;
+    let entry = target
+        .strip_prefix(store)
+        .ok()
+        .and_then(|rest| rest.components().next())
+        .map(|name| store.join(name))
+        .ok_or(Missing::Invalid)?;
+    let entry = fs::symlink_metadata(entry).map_err(Missing::from_io)?;
+    if entry.uid() != owner || entry.mode() & 0o222 != 0 {
+        return Err(Missing::Invalid);
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NONBLOCK | libc::O_NOFOLLOW)
+        .open(&target)
+        .map_err(Missing::from_io)?;
+    let info = file.metadata().map_err(Missing::from_io)?;
+    if !info.is_file() || info.uid() != owner || info.mode() & 0o222 != 0 {
+        return Err(Missing::Invalid);
+    }
+    Ok(file)
 }
 
 fn read_bounded(reader: impl Read) -> Result<String, Missing> {
@@ -1804,6 +1852,67 @@ fn print_mode(json_output: bool, expanded: bool) -> io::Result<()> {
 mod tests {
     use super::*;
     use std::{cell::RefCell, collections::BTreeMap};
+
+    #[test]
+    fn nix_store_chains_must_end_in_an_unwritable_store_file_of_the_owner() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let root = std::env::temp_dir().join(format!("minibookx-nix-{}", std::process::id()));
+        let store = root.join("store");
+        let package = store.join("hash-pkg");
+        let units = package.join("lib/systemd/system");
+        fs::create_dir_all(&units).unwrap();
+        fs::create_dir_all(root.join("etc")).unwrap();
+        let unit = units.join("a.service");
+        fs::write(&unit, "[Service]\n").unwrap();
+        // A second name for the file, as store optimisation creates.
+        fs::hard_link(&unit, units.join("b.service")).unwrap();
+        // NixOS links a whole unit directory, then a leaf inside it.
+        symlink(&units, root.join("etc/static")).unwrap();
+        let leaf = root.join("etc/a.service");
+        symlink(root.join("etc/static/a.service"), &leaf).unwrap();
+        let outside = root.join("outside.service");
+        fs::write(&outside, "[Service]\n").unwrap();
+        fs::set_permissions(&outside, fs::Permissions::from_mode(0o444)).unwrap();
+        let escape = root.join("etc/escape.service");
+        symlink(&outside, &escape).unwrap();
+        let mode = |path: &Path, mode| {
+            fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap()
+        };
+        // SAFETY: getuid has no arguments.
+        let owner = unsafe { libc::getuid() };
+        let read = |path: &Path, owner| nix_store_file(path, &store, owner).and_then(read_bounded);
+
+        mode(&unit, 0o644);
+        mode(&package, 0o555);
+        assert_eq!(read(&leaf, owner), Err(Missing::Invalid), "writable file");
+        mode(&unit, 0o444);
+        assert_eq!(read(&leaf, owner).unwrap(), "[Service]\n");
+        assert_eq!(
+            read(&leaf, owner + 1),
+            Err(Missing::Invalid),
+            "foreign owner"
+        );
+        assert_eq!(
+            read(&unit, owner),
+            Err(Missing::Invalid),
+            "not a symlink leaf"
+        );
+        assert_eq!(
+            read(&escape, owner),
+            Err(Missing::Invalid),
+            "outside the store"
+        );
+        mode(&package, 0o755);
+        assert_eq!(
+            read(&leaf, owner),
+            Err(Missing::Invalid),
+            "writable store entry"
+        );
+
+        mode(&units, 0o755);
+        mode(&unit, 0o644);
+        fs::remove_dir_all(root).unwrap();
+    }
     #[derive(Default)]
     struct Fixture {
         files: BTreeMap<String, Result<String, Missing>>,

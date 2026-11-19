@@ -164,9 +164,8 @@ To update, run `nix flake update minibookx-ctl` and then switch again. Add
 controller, delete `services.minibookx-ctl.enable` and switch. The service stops
 and runs recovery before its unit is removed.
 
-On NixOS, doctor reports the installed unit and the distribution as
-unavailable. Both are symlinks into `/nix/store`, and doctor does not follow
-symlinks. Use `systemctl status` to check the service.
+Doctor has no graphics package recipe for NixOS. Follow
+[graphics](graphics.md) and the NixOS documentation instead.
 
 ## Check the result
 
