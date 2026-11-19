@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-use std::{env, fs, path::Path, process::Command};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 fn license_files(base: &Path, directory: &Path, prefix: &str, files: &mut Vec<(String, String)>) {
     println!("cargo::rerun-if-changed={}", directory.display());
@@ -31,7 +35,13 @@ fn license_files(base: &Path, directory: &Path, prefix: &str, files: &mut Vec<(S
     }
 }
 
-fn bundle_licenses(root: &Path) {
+fn rust_docs() -> PathBuf {
+    // Nix toolchains assemble the sysroot from symlinks; their builder passes
+    // a dereferenced copy of the same compiler's notices instead.
+    println!("cargo::rerun-if-env-changed=MINIBOOKX_RUST_DOCS");
+    if let Some(directory) = env::var_os("MINIBOOKX_RUST_DOCS") {
+        return directory.into();
+    }
     let compiler = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let output = Command::new(compiler)
         .args(["--print", "sysroot"])
@@ -39,7 +49,11 @@ fn bundle_licenses(root: &Path) {
         .expect("query Rust sysroot for its runtime license notices");
     assert!(output.status.success(), "query Rust sysroot");
     let sysroot = String::from_utf8(output.stdout).expect("Rust sysroot UTF-8");
-    let rust_docs = Path::new(sysroot.trim()).join("share/doc/rust");
+    Path::new(sysroot.trim()).join("share/doc/rust")
+}
+
+fn bundle_licenses(root: &Path) {
+    let rust_docs = rust_docs();
     let mut files = Vec::new();
     let licenses = root.join("packaging/licenses");
     license_files(&licenses, &licenses, "", &mut files);

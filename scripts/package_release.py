@@ -41,6 +41,8 @@ TOP_FILES = [
     "ruff.toml",
     "requirements-dev.txt",
     "clippy.toml",
+    "flake.nix",
+    "flake.lock",
 ]
 SOURCE_DIRS = [
     "src",
@@ -52,6 +54,7 @@ SOURCE_DIRS = [
     "tests",
     ".github",
     "third-party",
+    "nix",
 ]
 RUNTIME_DIRS = ["packaging", "config", "docs", "contrib/vbt", "contrib/i915"]
 DENY_SUFFIXES = {".bin", ".cpio", ".rom", ".fd", ".aml", ".log", ".pyc"}

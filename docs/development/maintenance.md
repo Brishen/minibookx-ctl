@@ -39,6 +39,14 @@ executables are built without development features.
 `rust-docs` supplies the compiler's runtime license notices embedded in every
 build; it is required even when you do not use Rust's local documentation.
 
+On NixOS, `nix develop` provides the native-check tools and the toolchain from
+`rust-toolchain.toml`. `nix build` builds the dynamically linked package used by
+the [NixOS module](../guide/install.md#install-on-nixos). Nix toolchains link
+their sysroot together from symlinks, so the flake passes a copied set of the
+same compiler's notices to `build.rs` through `MINIBOOKX_RUST_DOCS`. The Nix
+build skips five process-deadline tests that need FHS coreutils; `make check`
+still runs them.
+
 The default C compiler is `musl-gcc`. A compatible compiler wrapper can be selected
 explicitly:
 

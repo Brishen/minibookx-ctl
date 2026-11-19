@@ -69,11 +69,19 @@ pub(crate) fn check_profile() -> io::Result<()> {
 
 /// Distribution package tools may live in either bin or sbin. Never consult
 /// an inherited PATH; symlinks in these administrator-controlled directories
-/// are normal on merged-/usr distributions.
+/// are normal on merged-/usr distributions. NixOS has no FHS tool directories;
+/// its root-owned system profile is the equivalent fixed location.
 pub(crate) fn system_tool(name: &str) -> io::Result<PathBuf> {
     find_tool(
         name,
-        &["/usr/bin", "/usr/sbin", "/bin", "/sbin"].map(Path::new),
+        &[
+            "/usr/bin",
+            "/usr/sbin",
+            "/bin",
+            "/sbin",
+            "/run/current-system/sw/bin",
+        ]
+        .map(Path::new),
     )
 }
 

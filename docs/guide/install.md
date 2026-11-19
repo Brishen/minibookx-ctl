@@ -51,6 +51,11 @@ On Fedora, check fan support before starting: the regular kernel may lack
 The [kernel reference](../reference/kernel-support.md) explains how to check.
 For immutable Fedora variants, use their own package-layering procedure.
 
+### NixOS
+
+NixOS does not use the installer or these packages. Follow
+[Install on NixOS](#install-on-nixos) instead.
+
 ## Install and start
 
 Leave the laptop in its ordinary working position. As your ordinary user, run
@@ -99,6 +104,69 @@ VM tests but is not physically qualified; see
 On updates, `--no-enable` preserves whether the service was enabled and
 running. Updating stops it for recovery and restarts it if it was running; this
 option is not a way to keep an active service stopped.
+
+## Install on NixOS
+
+NixOS generates its system files from its configuration, so the installer
+refuses to run there. Instead, the repository's flake provides a package and a
+NixOS module. They install the same service, configuration file and locked
+account. The stock NixOS kernel includes `ec_sys` and mounts debugfs, so
+managed fan control needs no kernel changes.
+
+The flake builds the controller from source on your machine. It links the
+system's libdbus instead of using the static release binary.
+
+Add the flake to the inputs of your system flake and import its module:
+
+```nix
+{
+  inputs.minibookx-ctl.url = "github:ishad0w/minibookx-ctl";
+
+  outputs = { nixpkgs, minibookx-ctl, ... }: {
+    nixosConfigurations.HOSTNAME = nixpkgs.lib.nixosSystem {
+      modules = [
+        minibookx-ctl.nixosModules.default
+        { services.minibookx-ctl.enable = true; }
+        # ... your existing modules
+      ];
+    };
+  };
+}
+```
+
+For GNOME rotation, also set `hardware.sensor.iio.enable = true;` to get
+`iio-sensor-proxy`. Leave the laptop in its ordinary working position, then
+apply the configuration:
+
+```sh
+sudo nixos-rebuild switch
+minibookx-ctl --doctor
+systemctl status minibookx-ctl.service --no-pager
+```
+
+To change settings, copy `config/presets.conf` from the repository next to your
+system configuration and edit it. Then point the module at the copy:
+
+```nix
+services.minibookx-ctl.configFile = ./minibookx-ctl.conf;
+```
+
+Use `fan_control = false` in that file for
+[firmware fan control](#without-fan-control). A configuration change restarts
+the service, which runs recovery first. To check a file before switching:
+
+```sh
+minibookx-ctl --check-config ./minibookx-ctl.conf
+```
+
+To update, run `nix flake update minibookx-ctl` and then switch again. Add
+`?ref=vX.Y.Z` to the input URL to stay on a published version. To remove the
+controller, delete `services.minibookx-ctl.enable` and switch. The service stops
+and runs recovery before its unit is removed.
+
+On NixOS, doctor reports the installed unit and the distribution as
+unavailable. Both are symlinks into `/nix/store`, and doctor does not follow
+symlinks. Use `systemctl status` to check the service.
 
 ## Check the result
 

@@ -79,11 +79,14 @@ class BuildMetadataTests(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def run_build(self, **values):
+        env = dict(self.env, **values)
+        # None removes an inherited variable, such as the Nix shell's notices.
+        env = {key: value for key, value in env.items() if value is not None}
         return subprocess.run(
             [str(self.exe)],
             check=False,
             cwd=self.tree,
-            env=dict(self.env, **values),
+            env=env,
             capture_output=True,
             text=True,
             timeout=15,
@@ -159,7 +162,7 @@ class BuildMetadataTests(unittest.TestCase):
         (self.tree / "packaging/licenses/link").symlink_to(self.tree / "build.rs")
         self.assertNotEqual(self.run_build().returncode, 0)
 
-    def test_missing_compiler_notices_explain_the_required_component(self):
+    def minimal_compiler(self):
         sysroot = self.base / "minimal-sysroot"
         sysroot.mkdir()
         compiler = self.base / "minimal-rustc"
@@ -167,10 +170,29 @@ class BuildMetadataTests(unittest.TestCase):
             "#!/bin/sh\nprintf '%s\\n' " + shlex.quote(str(sysroot)) + "\n"
         )
         compiler.chmod(0o755)
-        result = self.run_build(RUSTC=str(compiler))
+        return str(compiler)
+
+    def test_missing_compiler_notices_explain_the_required_component(self):
+        result = self.run_build(RUSTC=self.minimal_compiler(), MINIBOOKX_RUST_DOCS=None)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("rustup component add rust-docs", result.stderr)
         self.assertFalse((Path(self.env["OUT_DIR"]) / "license_manifest.rs").exists())
+
+    def test_nix_notice_directory_replaces_the_sysroot_but_not_the_symlink_check(self):
+        docs = self.base / "rust-docs"
+        (docs / "licenses").mkdir(parents=True)
+        (docs / "licenses/Apache-2.0.txt").write_text("notice fixture\n")
+        (docs / "COPYRIGHT-library.html").write_text("copyright fixture\n")
+        compiler = self.minimal_compiler()
+        result = self.run_build(RUSTC=compiler, MINIBOOKX_RUST_DOCS=str(docs))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = (Path(self.env["OUT_DIR"]) / "license_manifest.rs").read_text()
+        self.assertIn(
+            '("rust-runtime/licenses/Apache-2.0.txt", include_bytes!(', manifest
+        )
+        (docs / "licenses/link").symlink_to(docs / "COPYRIGHT-library.html")
+        result = self.run_build(RUSTC=compiler, MINIBOOKX_RUST_DOCS=str(docs))
+        self.assertNotEqual(result.returncode, 0)
 
 
 class StaticBuildDriverTests(unittest.TestCase):

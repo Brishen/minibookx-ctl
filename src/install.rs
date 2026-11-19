@@ -156,6 +156,13 @@ impl Target {
                 "live installation requires root; use sudo or --destdir for staging",
             ));
         }
+        // NixOS generates /etc/systemd and accounts from its configuration;
+        // files copied here would be shadowed or removed on the next rebuild.
+        if destdir.is_none() && Path::new("/etc/NIXOS").exists() {
+            return Err(refuse(
+                "NixOS is managed declaratively; enable services.minibookx-ctl from this repository's flake instead",
+            ));
+        }
         let root = destdir.unwrap_or_else(|| Path::new("/"));
         if destdir.is_some() && root == Path::new("/") {
             return Err(refuse(
