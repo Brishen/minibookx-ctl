@@ -44,8 +44,15 @@ On NixOS, `nix develop` provides the native-check tools and the toolchain from
 the [NixOS module](../guide/install.md#install-on-nixos). Nix toolchains link
 their sysroot together from symlinks, so the flake passes a copied set of the
 same compiler's notices to `build.rs` through `MINIBOOKX_RUST_DOCS`. The Nix
-build skips five process-deadline tests that need FHS coreutils; `make check`
-still runs them.
+build runs the full Rust test suite. Tests that need ordinary utilities find
+them in `/usr/bin` or `/bin` first, then in the test's `PATH`.
+
+`nix flake check` builds the package and runs a NixOS VM test of the module.
+The test checks the service account, the configuration's owner and mode, the
+unit's executable paths, the installer's refusal and doctor's unit detection.
+Its guest is not a U300, so it only checks that the service refuses in
+`--prepare`. It does not cover fan, tablet, sleep or EC behavior, and it is not
+part of the release CI.
 
 The default C compiler is `musl-gcc`. A compatible compiler wrapper can be selected
 explicitly:

@@ -35,7 +35,9 @@ are reported as unreadable.
 Doctor and debug JSON reports carry `schema_version` 3. Documentation links are pinned to the executable's release version.
 
 Package profiles cover Debian 13, Ubuntu 24.04/26.04, Fedora 43/44 and
-Arch/CachyOS rolling releases. Another version of the same distribution uses
+Arch/CachyOS rolling releases. On NixOS, doctor checks fixed entries in the
+active system's graphics, firmware and tool profiles instead of a package
+database; it reports presence only and does not follow or load them. Another version of the same distribution uses
 the nearest checked recipe, explicitly marked unverified. Unknown distribution
 IDs remain unknown; `ID_LIKE` does not select a recipe. Queries are fixed, bounded and read-only;
 privileged reports drop the query child's privileges. A query failure does not

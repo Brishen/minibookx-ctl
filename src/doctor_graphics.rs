@@ -328,6 +328,10 @@ pub(super) fn collect(sources: &impl Sources, os: &Result<OsRelease, Missing>) -
         }
     );
     fields.push(field("distribution", "Package distribution", Ok(identity)));
+    if os.id == "nixos" {
+        nixos(sources, &mut fields);
+        return section("graphics", "Optional Intel graphics setup", fields);
+    }
     let Some(backend) = backend(os) else {
         fields.push(note("package_profile", "Graphics package profile", "no package recipe for this distribution ID; check its package documentation manually. ID_LIKE alone is not proof of package compatibility"));
         return section("graphics", "Optional Intel graphics setup", fields);
@@ -459,6 +463,74 @@ pub(super) fn collect(sources: &impl Sources, os: &Result<OsRelease, Missing>) -
     section("graphics", "Optional Intel graphics setup", fields)
 }
 
+/// NixOS has no package database for system configuration. Its graphics
+/// module links the active drivers into fixed profile paths; check only that
+/// those entries exist, without following them or loading any driver.
+fn nixos(sources: &impl Sources, fields: &mut Vec<Value>) {
+    fields.push(field(
+        "package_profile",
+        "Graphics package profile",
+        Ok("NixOS declarative recipe; active system profile paths are checked instead of a package database".into()),
+    ));
+    let package_rows = fields.len();
+    for (key, label, path, option) in [
+        (
+            "mesa_gl",
+            "Mesa OpenGL",
+            "/run/opengl-driver/lib/dri/iris_dri.so",
+            "hardware.graphics.enable = true",
+        ),
+        (
+            "mesa_vulkan",
+            "Mesa Vulkan",
+            "/run/opengl-driver/share/vulkan/icd.d/intel_icd.x86_64.json",
+            "hardware.graphics.enable = true",
+        ),
+        (
+            "intel_media",
+            "Intel VA-API media driver",
+            "/run/opengl-driver/lib/dri/iHD_drv_video.so",
+            "hardware.graphics.extraPackages = [ pkgs.intel-media-driver ]",
+        ),
+        (
+            "intel_firmware",
+            "Intel graphics firmware",
+            "/run/current-system/firmware/i915",
+            "hardware.enableRedistributableFirmware = true",
+        ),
+        (
+            "vainfo",
+            "Optional VA-API inspection tool",
+            "/run/current-system/sw/bin/vainfo",
+            "environment.systemPackages = [ pkgs.libva-utils ]",
+        ),
+    ] {
+        fields.push(match sources.info(path) {
+            Ok(_) => field(key, label, Ok(format!("{path} present"))),
+            Err(Missing::Absent) => warning(
+                key,
+                label,
+                &format!("{path} absent; set {option} and rebuild"),
+            ),
+            Err(error) => field(key, label, Err(error)),
+        });
+    }
+    let missing = fields[package_rows..]
+        .iter()
+        .filter(|row| row["state"] == "warning")
+        .count();
+    fields.push(if missing == 0 {
+        field("package_status", "Optional graphics packages", Ok("NixOS profile entries found for Mesa, Vulkan, VA-API, Intel firmware and vainfo; runtime acceleration still needs an application check".into()))
+    } else {
+        note("package_status", "Optional graphics packages", &format!("{missing} recommended NixOS profile entries not found; this does not make the controller service unhealthy. vainfo may also be in a user profile"))
+    });
+    fields.push(note(
+        "settings",
+        "Driver settings",
+        "no NixOS options, packages, GuC/HuC options, Mesa settings or boot files were changed",
+    ));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,6 +545,20 @@ mod tests {
         inventory: Result<Inventory, String>,
     }
     impl Sources for Fake {
+        fn info(&self, path: &str) -> Result<super::super::FileInfo, Missing> {
+            // A NixOS profile with every entry but vainfo.
+            if path.starts_with("/run/") && !path.ends_with("/vainfo") {
+                Ok(super::super::FileInfo {
+                    regular: false,
+                    symlink: true,
+                    root_owned: true,
+                    mode: 0o777,
+                    bytes: 0,
+                })
+            } else {
+                Err(Missing::Absent)
+            }
+        }
         fn read(&self, path: &str) -> Result<String, Missing> {
             match path {
                 "/etc/os-release" => Ok(self.os.into()),
@@ -668,13 +754,13 @@ mod tests {
 
     #[test]
     fn query_capture_is_bounded_and_nonzero_exit_is_unknown() {
-        let mut output = Command::new("/usr/bin/printf");
+        let mut output = Command::new(crate::platform::test_tool("printf"));
         output.arg("fixture");
         assert_eq!(
             query_output(output, Duration::from_secs(1), 64).unwrap(),
             b"fixture"
         );
-        let mut output = Command::new("/usr/bin/printf");
+        let mut output = Command::new(crate::platform::test_tool("printf"));
         output.arg("too much output");
         assert!(
             query_output(output, Duration::from_secs(1), 2)
@@ -682,11 +768,15 @@ mod tests {
                 .contains("output limit")
         );
         assert!(
-            query_output(Command::new("/usr/bin/false"), Duration::from_secs(1), 64)
-                .unwrap_err()
-                .contains("unknown")
+            query_output(
+                Command::new(crate::platform::test_tool("false")),
+                Duration::from_secs(1),
+                64
+            )
+            .unwrap_err()
+            .contains("unknown")
         );
-        let mut wait = Command::new("/usr/bin/sleep");
+        let mut wait = Command::new(crate::platform::test_tool("sleep"));
         wait.arg("5");
         let start = Instant::now();
         assert!(
@@ -698,8 +788,30 @@ mod tests {
     }
 
     #[test]
+    fn nixos_checks_profile_paths_without_a_package_query() {
+        let report = collect(&Fake {
+            os: "ID=nixos\nVERSION_ID=26.05",
+            inventory: Err("NixOS must not query a package database".into()),
+        });
+        assert_eq!(row(&report, "package_profile")["state"], "ok");
+        for key in ["mesa_gl", "mesa_vulkan", "intel_media", "intel_firmware"] {
+            assert_eq!(row(&report, key)["state"], "ok", "{key}");
+        }
+        let vainfo = row(&report, "vainfo");
+        assert_eq!(vainfo["state"], "warning");
+        assert!(
+            vainfo["message"]
+                .as_str()
+                .unwrap()
+                .contains("pkgs.libva-utils")
+        );
+        assert!(!report.to_string().contains("package database query"));
+    }
+
+    #[test]
     fn static_advice_survives_the_report_message_limit() {
         for os in [
+            "ID=nixos\nVERSION_ID=26.05",
             "ID=debian\nVERSION_ID=13",
             "ID=ubuntu\nVERSION_ID=26.04",
             "ID=fedora\nVERSION_ID=44",
@@ -726,7 +838,7 @@ mod tests {
         if unsafe { libc::geteuid() } != 0 {
             return;
         }
-        let mut command = Command::new("/usr/bin/cat");
+        let mut command = Command::new(crate::platform::test_tool("cat"));
         command.arg("/proc/self/status");
         let output = query_output(command, Duration::from_secs(1), 64 * 1024).unwrap();
         let status = std::str::from_utf8(&output).unwrap();
@@ -759,12 +871,23 @@ mod tests {
     fn query_descendant_fixture() {
         // The test process exits first. This child keeps the capture pipe open
         // in the same process group; no shell or hardware interface is used.
-        let _child = Command::new("/usr/bin/sleep")
-            .arg("2")
+        // The query clears PATH, so the descendant is this test binary again.
+        let _child = Command::new("/proc/self/exe")
+            .args([
+                "--exact",
+                "doctor::graphics::tests::query_descendant_sleep",
+                "--ignored",
+            ])
             .stdout(Stdio::inherit())
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
+    }
+
+    #[test]
+    #[ignore = "descendant of query_descendant_fixture"]
+    fn query_descendant_sleep() {
+        std::thread::sleep(Duration::from_secs(2));
     }
 
     #[test]

@@ -58,7 +58,8 @@ with tempfile.TemporaryDirectory(prefix="minibookx-unit-check-") as temp:
     executable = root / "usr/local/bin/minibookx-ctl"
     executable.parent.mkdir(parents=True)
     # The analyzer checks executability but does not invoke commands.
-    shutil.copy2("/usr/bin/true", executable)
+    executable.write_text("#!/bin/sh\n")
+    executable.chmod(0o755)
     for name in (
         "sysinit",
         "basic",

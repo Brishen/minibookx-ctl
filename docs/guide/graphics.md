@@ -92,6 +92,25 @@ Packaging references: [Intel media driver](https://github.com/rpmfusion/intel-me
 
 </details>
 
+## NixOS
+
+```nix
+hardware.graphics.enable = true;
+hardware.graphics.extraPackages = [ pkgs.intel-media-driver ];
+hardware.enableRedistributableFirmware = true;
+environment.systemPackages = [ pkgs.libva-utils ];
+```
+
+`hardware.graphics.enable` provides Mesa OpenGL and Vulkan. Most desktop
+configurations already enable it. `intel-media-driver` adds video decoding, and
+the firmware option adds Intel graphics firmware. `libva-utils` supplies the
+optional `vainfo` tool. Rebuild with `sudo nixos-rebuild switch`.
+
+NixOS has no package database for these settings, so doctor checks for the
+resulting files in the active system instead. It cannot see a `vainfo` that is
+installed only in a user profile.
+[NixOS wiki](https://wiki.nixos.org/wiki/Accelerated_Video_Playback).
+
 ## Check playback
 
 Run as your graphical-session user:
@@ -110,5 +129,6 @@ need different fixes.
 
 There is no extra GuC/HuC or FBC override required by this setup. Details of
 the tested driver's state are in the [panel and graphics reference](../hardware/panel.md).
-Package recipes have container checks; physical graphics testing covers only
+Debian, Ubuntu, Fedora and Arch recipes have container checks; the NixOS recipe
+has none. Physical graphics testing covers only
 the [documented CachyOS system](../hardware/README.md).

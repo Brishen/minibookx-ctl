@@ -46,16 +46,6 @@ rustPlatform.buildRustPackage {
     "minibookx-ctl"
   ];
 
-  # These spawn /usr/bin or PATH coreutils, which the build sandbox lacks.
-  # They cover process deadlines and still run in `make check` and CI.
-  checkFlags = map (name: "--skip=${name}") [
-    "doctor::graphics::tests::query_capture_is_bounded_and_nonzero_exit_is_unknown"
-    "doctor::graphics::tests::query_deadline_includes_descendant_held_stdout"
-    "install::tests::command_deadline_covers_waiting_children_and_inherited_output_pipes"
-    "install::tests::memfd_snapshots_are_immutable_and_executable_copy_survives_exec"
-    "install::tests::status_only_commands_discard_large_output_and_capture_is_bounded"
-  ];
-
   postInstall = ''
     mkdir -p $out/lib/systemd/system
     substitute packaging/minibookx-ctl.service \

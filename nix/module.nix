@@ -8,6 +8,12 @@ self:
 
 let
   cfg = config.services.minibookx-ctl;
+  # Parse the file at build time as the unprivileged build user, so a rejected
+  # config fails the rebuild instead of the service after switching.
+  checkedConfig = pkgs.runCommand "minibookx-ctl.conf" { } ''
+    ${lib.getExe cfg.package} --check-config ${cfg.configFile}
+    cp ${cfg.configFile} $out
+  '';
 in
 {
   options.services.minibookx-ctl = {
@@ -26,8 +32,9 @@ in
       defaultText = lib.literalExpression "./config/presets.conf";
       description = ''
         Controller configuration, installed as /etc/minibookx-ctl/config.conf.
-        See docs/guide/configuration.md for the format. Fan control is chosen
-        at startup; other settings are reloaded while the service runs.
+        See docs/guide/configuration.md for the format. The rebuild fails if
+        the controller rejects the file. Fan control is chosen at startup;
+        other settings are reloaded while the service runs.
       '';
     };
   };
@@ -45,7 +52,7 @@ in
     # The service never follows a config symlink, so copy it with the same
     # ownership and mode that the standard installer uses.
     environment.etc."minibookx-ctl/config.conf" = {
-      source = cfg.configFile;
+      source = checkedConfig;
       mode = "0640";
       user = "root";
       group = "minibookx-ctl";
@@ -58,7 +65,7 @@ in
     systemd.services.minibookx-ctl = {
       wantedBy = [ "multi-user.target" ];
       # fan_control is read only at startup.
-      restartTriggers = [ cfg.configFile ];
+      restartTriggers = [ checkedConfig ];
     };
   };
 }

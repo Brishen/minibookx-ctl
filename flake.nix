@@ -49,9 +49,16 @@
         default = minibookx-ctl;
       };
 
+      overlays.default = final: prev: {
+        minibookx-ctl = self.packages.${prev.stdenv.hostPlatform.system}.default;
+      };
+
       nixosModules.default = import ./nix/module.nix self;
 
-      checks.${system}.package = minibookx-ctl;
+      checks.${system} = {
+        package = minibookx-ctl;
+        module = import ./nix/test.nix self { inherit pkgs; };
+      };
 
       devShells.${system}.default = pkgs.mkShell {
         packages = [

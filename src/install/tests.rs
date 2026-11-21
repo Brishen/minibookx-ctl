@@ -945,19 +945,28 @@ fn memfd_snapshots_are_immutable_and_executable_copy_survives_exec() {
     let mut snapshot = Vec::new();
     config.read_to_end(&mut snapshot).unwrap();
     assert_eq!(snapshot, b"exact config snapshot");
-    let image = sealed_snapshot(&fs::read("/usr/bin/true").unwrap(), true).unwrap();
+    // Multicall coreutils and busybox dispatch on argv[0], which is the fd
+    // path here. This test binary does not, and --list runs no tests.
+    let image = sealed_snapshot(&fs::read("/proc/self/exe").unwrap(), true).unwrap();
     assert_eq!(image.metadata().unwrap().mode() & 0o777, 0o555);
     let path = PathBuf::from(format!("/proc/self/fd/{}", image.as_raw_fd()));
-    execute(subprocess(&path, &[]), false, Duration::from_secs(2)).unwrap();
+    execute(
+        subprocess(&path, &["--list"]),
+        false,
+        Duration::from_secs(5),
+    )
+    .unwrap();
 }
 
 #[test]
 fn status_only_commands_discard_large_output_and_capture_is_bounded() {
     let shell = Path::new("/bin/sh");
-    let flood = [
-        "-c",
-        "head -c 1048576 /dev/zero; head -c 1048576 /dev/zero >&2",
-    ];
+    let head = crate::platform::test_tool("head");
+    let flood = format!(
+        "{0} -c 1048576 /dev/zero; {0} -c 1048576 /dev/zero >&2",
+        head.display()
+    );
+    let flood = ["-c", flood.as_str()];
     assert!(
         execute(subprocess(shell, &flood), false, Duration::from_secs(2))
             .unwrap()
@@ -985,10 +994,12 @@ fn status_only_commands_discard_large_output_and_capture_is_bounded() {
 
 #[test]
 fn command_deadline_covers_waiting_children_and_inherited_output_pipes() {
-    for (script, capture) in [("sleep 5", false), ("sleep 5 &", true)] {
+    let sleep = crate::platform::test_tool("sleep");
+    for (suffix, capture) in [("", false), (" &", true)] {
+        let script = format!("{} 5{suffix}", sleep.display());
         let start = Instant::now();
         let error = execute(
-            subprocess(Path::new("/bin/sh"), &["-c", script]),
+            subprocess(Path::new("/bin/sh"), &["-c", &script]),
             capture,
             Duration::from_millis(100),
         )
@@ -1000,14 +1011,12 @@ fn command_deadline_covers_waiting_children_and_inherited_output_pipes() {
 
 #[test]
 fn failed_commands_include_bounded_stderr_without_terminal_controls() {
+    let script = format!(
+        "printf '\\033[31mconfig rejected\\n' >&2; {} -c 16384 /dev/zero >&2; exit 1",
+        crate::platform::test_tool("head").display()
+    );
     let error = execute(
-        subprocess(
-            Path::new("/bin/sh"),
-            &[
-                "-c",
-                "printf '\\033[31mconfig rejected\\n' >&2; head -c 16384 /dev/zero >&2; exit 1",
-            ],
-        ),
+        subprocess(Path::new("/bin/sh"), &["-c", &script]),
         false,
         Duration::from_secs(2),
     )

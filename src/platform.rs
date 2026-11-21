@@ -113,6 +113,18 @@ fn find_tool(name: &str, directories: &[&Path]) -> io::Result<PathBuf> {
     ))
 }
 
+/// Test-only lookup for ordinary utilities. NixOS hosts and the Nix build
+/// sandbox have no /usr/bin coreutils, so fall back to the test's PATH. Keep
+/// the unresolved link name: multicall coreutils dispatch on argv[0].
+#[cfg(test)]
+pub(crate) fn test_tool(name: &str) -> PathBuf {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let mut directories = vec![PathBuf::from("/usr/bin"), PathBuf::from("/bin")];
+    directories.extend(std::env::split_paths(&path));
+    let directories: Vec<_> = directories.iter().map(PathBuf::as_path).collect();
+    find_tool(name, &directories).unwrap_or_else(|e| panic!("test tool {name}: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

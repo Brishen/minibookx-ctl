@@ -48,7 +48,7 @@ runtime trust boundaries. Keep the required boundaries in
 | [packaging/licenses/](packaging/licenses/), [THIRD_PARTY.md](THIRD_PARTY.md) | Dependency notices and source information |
 | [build.rs](build.rs), [Cargo.toml](Cargo.toml), [Cargo.lock](Cargo.lock) | Embedded notices/provenance, build features, lint policy and locked Rust dependencies |
 | [third-party/libdbus.json](third-party/libdbus.json) | Pinned C dependency identity |
-| [flake.nix](flake.nix), [nix/](nix/) | NixOS package, module and development shell; replace the installer on NixOS |
+| [flake.nix](flake.nix), [nix/](nix/) | NixOS package, overlay, module, module VM test and development shell; replace the installer on NixOS |
 
 ## Developer tools and tests
 

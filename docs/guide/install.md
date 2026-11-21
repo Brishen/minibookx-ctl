@@ -152,20 +152,25 @@ services.minibookx-ctl.configFile = ./minibookx-ctl.conf;
 ```
 
 Use `fan_control = false` in that file for
-[firmware fan control](#without-fan-control). A configuration change restarts
-the service, which runs recovery first. To check a file before switching:
+[firmware fan control](#without-fan-control). The rebuild checks the file and
+stops with the controller's error if it is rejected, leaving the running system
+unchanged. An accepted change restarts the service, which runs recovery first.
+To check a file without rebuilding:
 
 ```sh
 minibookx-ctl --check-config ./minibookx-ctl.conf
 ```
+
+To refer to the package elsewhere in your configuration, add
+`minibookx-ctl.overlays.default` to `nixpkgs.overlays`; it provides
+`pkgs.minibookx-ctl`.
 
 To update, run `nix flake update minibookx-ctl` and then switch again. Add
 `?ref=vX.Y.Z` to the input URL to stay on a published version. To remove the
 controller, delete `services.minibookx-ctl.enable` and switch. The service stops
 and runs recovery before its unit is removed.
 
-Doctor has no graphics package recipe for NixOS. Follow
-[graphics](graphics.md) and the NixOS documentation instead.
+For video decoding, see [graphics on NixOS](graphics.md#nixos).
 
 ## Check the result
 
